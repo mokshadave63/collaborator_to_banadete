@@ -1,158 +1,297 @@
 import React, { useEffect, useState } from 'react';
-import { Heart, Search, Filter, TrendingUp } from 'lucide-react';
-import { useDesign } from '../context/DesignContext';
-import DesignCard from '../components/DesignCard';
+import { Heart, Eye, Download, Share2 } from 'lucide-react';
+import { designAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
+
+interface Design {
+  _id: string;
+  name: string;
+  description?: string;
+  user: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  designData: any;
+  thumbnail?: string;
+  isPublic: boolean;
+  likes: string[];
+  downloads: number;
+  views?: number;
+  tags: string[];
+  shareId?: string;
+  createdAt: string;
+}
 
 const Community: React.FC = () => {
-  const { state: designState, loadPublicDesigns, likeDesign } = useDesign();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<'newest' | 'popular'>('newest');
+  const { state: authState } = useAuth();
+  const [designs, setDesigns] = useState<Design[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [likedDesigns, setLikedDesigns] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    loadPublicDesigns();
-  }, []);
+    loadDesigns();
+  }, [page]);
 
-  const filteredAndSortedDesigns = designState.publicDesigns
-    .filter(design => {
-      const matchesSearch = design.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesFilter = filterType === 'all' || design.clothingType === filterType;
-      return matchesSearch && matchesFilter;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'popular') {
-        return b.likes - a.likes;
+  const loadDesigns = async () => {
+    try {
+      setLoading(true);
+      const response = await designAPI.getPublic(page, 12);
+      setDesigns(response.designs);
+      setTotalPages(response.pages);
+
+      // Check which designs user has liked
+      if (authState.user) {
+        const liked = new Set<string>();
+        response.designs.forEach((design: Design) => {
+          if (design.likes && design.likes.some((id) => id.toString() === (authState.user?._id || '').toString())) {
+            liked.add(design._id);
+          }
+        });
+        setLikedDesigns(liked);
       }
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
+    } catch (error) {
+      console.error('Failed to load designs', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLike = async (e: React.MouseEvent, designId: string) => {
+    e.preventDefault();
+    if (!authState.isAuthenticated) {
+      alert('Please log in to like designs');
+      return;
+    }
+
+    try {
+      if (likedDesigns.has(designId)) {
+        const res = await designAPI.unlike(designId);
+        // Update local designs state with returned likes
+        setDesigns((prev) => prev.map((d) => d._id === designId ? { ...d, likes: res.likes } : d));
+        setLikedDesigns((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(designId);
+          return newSet;
+        });
+      } else {
+        const res = await designAPI.like(designId);
+        setDesigns((prev) => prev.map((d) => d._id === designId ? { ...d, likes: res.likes } : d));
+        setLikedDesigns((prev) => new Set(prev).add(designId));
+      }
+    } catch (error: any) {
+      console.error('Failed to like design', error);
+      const msg = error?.message || (error?.response && error.response.data && error.response.data.message) || 'Failed to update like';
+      alert(msg);
+    }
+  };
+
+  const handleDownload = async (e: React.MouseEvent, design: Design) => {
+    e.preventDefault();
+    try {
+      if (authState.token) {
+        await designAPI.downloadDesign(design._id);
+      }
+      // Create JSON download
+      const dataStr = JSON.stringify(design.designData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${design.name}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download design', error);
+    }
+  };
+
+  if (loading && designs.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full mx-auto mb-4" />
+          <p className="text-gray-600">Loading community designs...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Header */}
-        <div className="text-center mb-8">
+        <div className="mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">Community Gallery</h1>
-          <p className="text-xl text-gray-600">Discover amazing designs from talented creators</p>
+          <p className="text-xl text-gray-600">
+            Explore designs from the StyleCraft community and discover amazing creations
+          </p>
         </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-xl shadow-sm border p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-primary-100 to-primary-200 rounded-full flex items-center justify-center">
-              <Heart className="w-6 h-6 text-primary-600" />
-            </div>
-            <div className="text-2xl font-bold text-gray-900 mb-1">
-              {designState.publicDesigns.reduce((sum, design) => sum + design.likes, 0)}
-            </div>
-            <div className="text-gray-600">Total Likes</div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-primary-100 to-primary-200 rounded-full flex items-center justify-center">
-              <TrendingUp className="w-6 h-6 text-primary-600" />
-            </div>
-            <div className="text-2xl font-bold text-gray-900 mb-1">{designState.publicDesigns.length}</div>
-            <div className="text-gray-600">Public Designs</div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border p-6 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 bg-gradient-to-br from-primary-100 to-primary-200 rounded-full flex items-center justify-center">
-              <div className="text-primary-600 text-xl">🎨</div>
-            </div>
-            <div className="text-2xl font-bold text-gray-900 mb-1">∞</div>
-            <div className="text-gray-600">Creativity</div>
-          </div>
-        </div>
-
-        {/* Search and Filter */}
-        <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Search community designs..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                />
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <Filter className="w-5 h-5 text-gray-400" />
-                <select
-                  value={filterType}
-                  onChange={(e) => setFilterType(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                >
-                  <option value="all">All Types</option>
-                  <option value="shirt">Shirts</option>
-                  <option value="dress">Dresses</option>
-                  <option value="pants">Pants</option>
-                  <option value="jacket">Jackets</option>
-                  <option value="skirt">Skirts</option>
-                </select>
-              </div>
-
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as 'newest' | 'popular')}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="newest">Newest</option>
-                <option value="popular">Most Popular</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Featured Design */}
-        {filteredAndSortedDesigns.length > 0 && sortBy === 'popular' && (
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">🏆 Featured Design</h2>
-            <div className="bg-gradient-to-br from-primary-50 to-primary-100 rounded-2xl p-6 border border-primary-200">
-              <div className="max-w-sm mx-auto">
-                <DesignCard
-                  design={filteredAndSortedDesigns[0]}
-                  onLike={likeDesign}
-                  isPublic={true}
-                />
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Designs Grid */}
-        {filteredAndSortedDesigns.length > 0 ? (
-          <div>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                {sortBy === 'newest' ? 'Latest Designs' : 'Popular Designs'}
-              </h2>
-              <span className="text-gray-500">{filteredAndSortedDesigns.length} designs</span>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredAndSortedDesigns.map((design) => (
-                <DesignCard
-                  key={design.id}
-                  design={design}
-                  onLike={likeDesign}
-                  isPublic={true}
-                />
+        {designs.length > 0 ? (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+              {designs.map((design) => (
+                <Link
+                  key={design._id}
+                  to={`/share/${design.shareId}`}
+                  className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow overflow-hidden group"
+                >
+                  {/* Design Card */}
+                  <div className="relative bg-gradient-to-br from-gray-100 to-gray-200 h-48 flex items-center justify-center overflow-hidden">
+                    {design.thumbnail ? (
+                      <img
+                        src={design.thumbnail}
+                        alt={design.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                    ) : (
+                      <div className="text-center">
+                        <div
+                          className="w-24 h-24 rounded-lg mx-auto mb-2"
+                          style={{ backgroundColor: design.designData?.color || '#EFBD48' }}
+                        />
+                        <p className="text-sm text-gray-600">{design.designData?.pattern || 'Design'}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card Content */}
+                  <div className="p-4">
+                    <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 mb-2">
+                      {design.name}
+                    </h3>
+
+                    <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                      {design.description || 'No description provided'}
+                    </p>
+
+                    {/* Designer Info */}
+                    <div className="flex items-center space-x-2 mb-3">
+                      <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                        {design.user?.name?.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{design.user?.name}</p>
+                      </div>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="flex items-center justify-between text-sm text-gray-600 mb-3 border-t pt-3">
+                      <div className="flex items-center space-x-1">
+                        <Eye className="w-4 h-4" />
+                        <span>{design.views || 0}</span>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <Heart className="w-4 h-4" />
+                        <span>{design.likes?.length || 0}</span>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <Download className="w-4 h-4" />
+                        <span>{design.downloads || 0}</span>
+                      </div>
+                    </div>
+
+                    {/* Tags */}
+                    {design.tags && design.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {design.tags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-2 py-1 text-xs bg-primary-100 text-primary-700 rounded"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-2 pt-3 border-t">
+                      <button
+                        onClick={(e) => handleLike(e, design._id)}
+                        className={`flex-1 flex items-center justify-center space-x-1 py-2 rounded transition-colors ${likedDesigns.has(design._id)
+                          ? 'bg-red-100 text-red-600'
+                          : 'bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-600'
+                          }`}
+                      >
+                        <Heart className={`w-4 h-4 ${likedDesigns.has(design._id) ? 'fill-current' : ''}`} />
+                        <span className="text-sm font-medium">Like</span>
+                      </button>
+
+                      <button
+                        onClick={(e) => handleDownload(e, design)}
+                        className="flex-1 flex items-center justify-center space-x-1 py-2 bg-gray-100 text-gray-600 rounded hover:bg-blue-100 hover:text-blue-600 transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span className="text-sm font-medium">Download</span>
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigator.clipboard.writeText(`${window.location.origin}/share/${design.shareId}`);
+                          alert('Share link copied!');
+                        }}
+                        className="flex-1 flex items-center justify-center space-x-1 py-2 bg-gray-100 text-gray-600 rounded hover:bg-green-100 hover:text-green-600 transition-colors"
+                      >
+                        <Share2 className="w-4 h-4" />
+                        <span className="text-sm font-medium">Share</span>
+                      </button>
+                    </div>
+                  </div>
+                </Link>
               ))}
             </div>
-          </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex justify-center items-center gap-2 mb-8">
+                <button
+                  onClick={() => setPage(Math.max(1, page - 1))}
+                  disabled={page === 1}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  const pageNum = page > 2 ? page - 2 + i : i + 1;
+                  return pageNum <= totalPages ? (
+                    <button
+                      key={pageNum}
+                      onClick={() => setPage(pageNum)}
+                      className={`px-4 py-2 rounded-lg ${pageNum === page
+                        ? 'bg-primary-600 text-white'
+                        : 'border border-gray-300 hover:bg-gray-50'
+                        }`}
+                    >
+                      {pageNum}
+                    </button>
+                  ) : null;
+                })}
+                <button
+                  onClick={() => setPage(Math.min(totalPages, page + 1))}
+                  disabled={page === totalPages}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
         ) : (
-          <div className="text-center py-16">
-            <div className="w-24 h-24 mx-auto mb-4 bg-gradient-to-br from-primary-100 to-primary-200 rounded-full flex items-center justify-center">
-              <Search className="w-12 h-12 text-primary-600" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No designs found</h3>
-            <p className="text-gray-600">Try adjusting your search or filter criteria</p>
+          <div className="text-center py-12">
+            <p className="text-gray-600 text-lg">No designs found yet. Be the first to create one!</p>
+            <Link
+              to="/studio"
+              className="mt-4 inline-block px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            >
+              Start Designing
+            </Link>
           </div>
         )}
       </div>

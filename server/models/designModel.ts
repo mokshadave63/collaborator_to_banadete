@@ -13,9 +13,11 @@ export interface IDesign extends Document {
   };
   thumbnail: string;
   isPublic: boolean;
-  likes: number;
+  likes: mongoose.Schema.Types.ObjectId[];
   downloads: number;
+  views?: number;
   tags: string[];
+  shareId?: string;
 }
 
 const designSchema = new mongoose.Schema<IDesign>(
@@ -58,26 +60,31 @@ const designSchema = new mongoose.Schema<IDesign>(
     },
     thumbnail: {
       type: String,
-      required: true,
+      default: '',
     },
     isPublic: {
       type: Boolean,
       default: true,
     },
-    likes: {
-      type: Number,
-      default: 0,
-    },
+    likes: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
     downloads: {
       type: Number,
       default: 0,
     },
-    tags: [
-      {
-        type: String,
-        trim: true,
-      },
-    ],
+    views: {
+      type: Number,
+      default: 0,
+    },
+    shareId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
   },
   {
     timestamps: true,
@@ -85,10 +92,10 @@ const designSchema = new mongoose.Schema<IDesign>(
 );
 
 // Add text index for search functionality
-designSchema.index({ 
-  name: 'text', 
-  description: 'text', 
-  tags: 'text' 
+designSchema.index({
+  name: 'text',
+  description: 'text',
+  tags: 'text'
 });
 
 const Design = mongoose.model<IDesign>('Design', designSchema);

@@ -7,7 +7,7 @@ import state from '../store';
 
 const DynamicClothingModel = ({ clothingType = 'shirt' }) => {
   const snap = useSnapshot(state);
-  
+
   const modelMap = {
     shirt: { path: '/shirt.glb', scale: [1, 1, 1] },
     dress: { path: '/dress.glb', scale: [0.8, 0.8, 0.8] },
@@ -19,6 +19,7 @@ const DynamicClothingModel = ({ clothingType = 'shirt' }) => {
   const modelConfig = modelMap[clothingType] || modelMap.shirt;
   const gltf = useGLTF(modelConfig.path, true);
   const groupRef = useRef(null);
+  const [decalMesh, setDecalMesh] = useState(null);
   const [fullTexture, setFullTexture] = useState(null);
 
   // Load full decal texture
@@ -41,9 +42,9 @@ const DynamicClothingModel = ({ clothingType = 'shirt' }) => {
       groupRef.current.traverse((child) => {
         if (child.isMesh && child.material) {
           const target = new THREE.Color(snap.color);
-          if (snap.isFullTexture && snap.fullDecal) {
-            child.material.color.lerp(target, 0.1);
-          } else {
+          // If a full texture is applied, avoid overriding the material color
+          // because the texture already contains the desired colors.
+          if (!snap.isFullTexture) {
             child.material.color.copy(target);
           }
         }
@@ -64,6 +65,40 @@ const DynamicClothingModel = ({ clothingType = 'shirt' }) => {
     }
   }, [snap.isFullTexture, snap.color]);
 
+  // Find a mesh inside the loaded model to attach the Decal to
+  useEffect(() => {
+    if (groupRef.current) {
+      // getObjectByProperty returns the first matching object
+      const m = groupRef.current.getObjectByProperty('isMesh', true);
+      if (m) setDecalMesh(m);
+    }
+  }, [gltf, groupRef.current, snap.clothingType]);
+
+  // Apply full texture as material.map to all meshes when available
+  useEffect(() => {
+    if (!groupRef.current) return;
+
+    groupRef.current.traverse((child) => {
+      if (child.isMesh && child.material) {
+        if (snap.isFullTexture && fullTexture) {
+          fullTexture.encoding = THREE.sRGBEncoding;
+          fullTexture.wrapS = THREE.RepeatWrapping;
+          fullTexture.wrapT = THREE.RepeatWrapping;
+          // Assign the texture to the material so it covers the whole mesh
+          child.material.map = fullTexture;
+          // Ensure material color doesn't darken the texture
+          child.material.color.setRGB(1, 1, 1);
+          child.material.needsUpdate = true;
+        } else if (!snap.isFullTexture) {
+          // clear any applied maps when switching back to solid color
+          child.material.map = null;
+          child.material.color.setStyle(snap.color);
+          child.material.needsUpdate = true;
+        }
+      }
+    });
+  }, [fullTexture, snap.isFullTexture, snap.color]);
+
   if (!gltf.nodes || !gltf.materials) {
     return (
       <mesh>
@@ -76,16 +111,6 @@ const DynamicClothingModel = ({ clothingType = 'shirt' }) => {
   return (
     <group ref={groupRef} scale={modelConfig.scale}>
       <primitive object={gltf.scene} />
-      {snap.isFullTexture && fullTexture && (
-        <Decal
-          position={[0, 0, 0.15]}
-          rotation={[0, 0, 0]}
-          scale={1.5}
-          map={fullTexture}
-          depthTest={false}
-          depthWrite={true}
-        />
-      )}
     </group>
   );
 };

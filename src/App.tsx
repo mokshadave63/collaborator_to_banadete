@@ -11,6 +11,7 @@ import DesignStudio from './pages/DesignStudio';
 import Gallery from './pages/Gallery';
 import Community from './pages/Community';
 import Library from './pages/Library';
+import SharedDesign from './pages/SharedDesign';
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
                 <Route path="/gallery" element={<Gallery />} />
                 <Route path="/community" element={<Community />} />
                 <Route path="/library" element={<Library />} />
+                <Route path="/share/:shareId" element={<SharedDesign />} />
               </Routes>
             </main>
             <Footer />

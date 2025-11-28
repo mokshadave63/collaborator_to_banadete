@@ -56,11 +56,21 @@ export const authUser = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
-    // Check for user email
-    const user = await User.findOne({ email });
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
 
-    if (user && (await user.matchPassword(password))) {
-      res.json({
+    // Check for user email - MUST select password field since it has select: false
+    const user = await User.findOne({ email }).select('+password');
+
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    const isMatch = await user.matchPassword(password);
+
+    if (isMatch) {
+      return res.json({
         _id: user._id,
         name: user.name,
         email: user.email,
@@ -68,10 +78,11 @@ export const authUser = async (req: Request, res: Response) => {
         token: generateToken(user._id.toString()),
       });
     } else {
-      res.status(401).json({ message: 'Invalid email or password' });
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
   } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Server error' });
+    console.error('Login error:', error);
+    return res.status(500).json({ message: error.message || 'Server error' });
   }
 };
 

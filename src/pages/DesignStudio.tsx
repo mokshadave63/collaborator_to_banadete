@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Save, Download, Share2, Shirt, Plus, Palette } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Save, Download, Share2, Shirt, Plus, Palette, Loader2, Copy, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useDesign, Design } from '../context/DesignContext';
+import { designAPI } from '../services/api';
 import ColorPicker from '../components/ColorPicker';
 import FabricPicker from '../components/FabricPicker';
 import PatternPicker from '../components/PatternPicker';
@@ -19,17 +20,22 @@ const clothingTypes = [
 const DesignStudio: React.FC = () => {
   const { state: authState } = useAuth();
   const { state: designState, createDesign, updateDesign, setCurrentDesign } = useDesign();
-  
+
   const [currentDesign, setLocalCurrentDesign] = useState({
     name: 'Untitled Design',
     clothingType: 'shirt' as const,
     color: '#6A0DAD',
     fabric: 'Cotton',
     pattern: 'Solid',
-    isPublic: false,
+    isPublic: true,
   });
 
   const [activeTab, setActiveTab] = useState<'type' | 'color' | 'fabric' | 'pattern'>('type');
+  const [isSaving, setIsSaving] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (designState.currentDesign) {
@@ -44,39 +50,101 @@ const DesignStudio: React.FC = () => {
     }
   }, [designState.currentDesign]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!authState.user) {
       alert('Please log in to save designs');
       return;
     }
 
-    const designData = {
-      ...currentDesign,
-      userId: authState.user.id,
-    };
+    setIsSaving(true);
 
-    if (designState.currentDesign) {
-      updateDesign({
-        ...designState.currentDesign,
-        ...designData,
-      });
-    } else {
-      createDesign(designData);
+    try {
+      let thumbnail = '';
+      // Capture canvas as thumbnail
+      if (canvasRef.current) {
+        const html2canvas = (await import('html2canvas')).default;
+        try {
+          const canvas = await html2canvas(canvasRef.current, {
+            scale: 0.5,
+            useCORS: true,
+            allowTaint: true,
+          });
+          thumbnail = canvas.toDataURL('image/jpeg', 0.7); // Data URL as thumbnail
+        } catch (e) {
+          console.error('Failed to capture thumbnail:', e);
+          thumbnail = ''; // Continue with empty thumbnail if capture fails
+        }
+      }
+
+      const designData = {
+        name: currentDesign.name,
+        description: currentDesign.name,
+        designData: {
+          color: currentDesign.color,
+          isFullTexture: state.isFullTexture,
+          fullDecal: state.fullDecal,
+          pattern: currentDesign.pattern,
+          fabric: currentDesign.fabric,
+        },
+        isPublic: currentDesign.isPublic,
+        tags: [currentDesign.clothingType, currentDesign.pattern, currentDesign.fabric],
+        thumbnail,
+      };
+
+      const response = await designAPI.create(designData);
+      alert('Design saved successfully!');
+      setShareUrl(`${window.location.origin}/share/${response.shareId}`);
+    } catch (error: any) {
+      alert(`Save failed: ${error.message}`);
+    } finally {
+      setIsSaving(false);
     }
-
-    alert('Design saved successfully!');
   };
 
   const handleNewDesign = () => {
-    setCurrentDesign(null);
-    setLocalCurrentDesign({
+    setCurrentDesign({
       name: 'Untitled Design',
       clothingType: 'shirt',
       color: '#6A0DAD',
       fabric: 'Cotton',
       pattern: 'Solid',
-      isPublic: false,
+      isPublic: true,
     });
+    setCurrentDesign(null);
+    state.clothingType = 'shirt';
+    state.color = '#6A0DAD';
+    state.isFullTexture = false;
+    state.fullDecal = '';
+  };
+
+  const handleExport = async () => {
+    if (!canvasRef.current) return;
+
+    try {
+      // Use html2canvas to capture the canvas
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(canvasRef.current);
+      const link = document.createElement('a');
+      link.href = canvas.toDataURL('image/jpeg');
+      link.download = `${currentDesign.name || 'design'}.jpeg`;
+      link.click();
+    } catch (error) {
+      alert('Export failed. Please try again.');
+    }
+  };
+
+  const handleShare = () => {
+    if (!shareUrl) {
+      handleSave(); // Save first if not saved
+      return;
+    }
+    setShowShareModal(true);
+  };
+
+  const copyShareLink = () => {
+    navigator.clipboard.writeText(shareUrl);
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 2000);
   };
 
   const getClothingPreview = () => {
@@ -235,7 +303,7 @@ const DesignStudio: React.FC = () => {
                 <p className="text-gray-500">Design Studio</p>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-3">
               <button
                 onClick={handleNewDesign}
@@ -244,21 +312,37 @@ const DesignStudio: React.FC = () => {
                 <Plus className="w-4 h-4" />
                 <span>New</span>
               </button>
-              
+
               <button
                 onClick={handleSave}
-                className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                disabled={isSaving}
+                className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
               >
-                <Save className="w-4 h-4" />
-                <span>Save</span>
+                {isSaving ? (
+                  <>
+                    <Loader2 className="animate-spin w-4 h-4" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Save</span>
+                  </>
+                )}
               </button>
-              
-              <button className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
+
+              <button
+                onClick={handleExport}
+                className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+              >
                 <Download className="w-4 h-4" />
                 <span>Export</span>
               </button>
-              
-              <button className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
+
+              <button
+                onClick={handleShare}
+                className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+              >
                 <Share2 className="w-4 h-4" />
                 <span>Share</span>
               </button>
@@ -269,7 +353,7 @@ const DesignStudio: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Design Canvas */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl shadow-sm border p-8 h-96">
+            <div ref={canvasRef} className="bg-white rounded-xl shadow-sm border p-8 h-96">
               <div className="text-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Design Preview</h3>
                 <p className="text-gray-500">Real-time visualization of your design</p>
@@ -288,7 +372,7 @@ const DesignStudio: React.FC = () => {
                 <div className="text-center p-4 bg-gray-50 rounded-lg">
                   <div className="text-sm text-gray-500 mb-1">Color</div>
                   <div className="flex items-center justify-center space-x-2">
-                    <div 
+                    <div
                       className="w-4 h-4 rounded-full border border-gray-300"
                       style={{ backgroundColor: currentDesign.color }}
                     />
@@ -321,11 +405,10 @@ const DesignStudio: React.FC = () => {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)}
-                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 text-sm font-medium transition-colors ${
-                      activeTab === tab.id
-                        ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
+                    className={`flex-1 flex items-center justify-center space-x-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === tab.id
+                      ? 'text-primary-600 border-b-2 border-primary-600 bg-primary-50'
+                      : 'text-gray-500 hover:text-gray-700'
+                      }`}
                   >
                     {tab.icon}
                     <span>{tab.name}</span>
@@ -346,11 +429,10 @@ const DesignStudio: React.FC = () => {
                             setLocalCurrentDesign(updated);
                             state.clothingType = type.id;
                           }}
-                          className={`flex items-center space-x-3 p-3 rounded-lg border-2 transition-all hover:scale-105 ${
-                            currentDesign.clothingType === type.id
-                              ? 'border-primary-500 bg-primary-50 text-primary-700'
-                              : 'border-gray-200 hover:border-primary-300'
-                          }`}
+                          className={`flex items-center space-x-3 p-3 rounded-lg border-2 transition-all hover:scale-105 ${currentDesign.clothingType === type.id
+                            ? 'border-primary-500 bg-primary-50 text-primary-700'
+                            : 'border-gray-200 hover:border-primary-300'
+                            }`}
                         >
                           <span className="text-2xl">{type.icon}</span>
                           <span className="font-medium">{type.name}</span>
@@ -400,6 +482,39 @@ const DesignStudio: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Share Modal */}
+        {showShareModal && shareUrl && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6">
+              <h2 className="text-2xl font-bold mb-4">Share Design</h2>
+              <p className="text-gray-600 mb-4">Share this link with others to show your design:</p>
+
+              <div className="flex items-center gap-2 mb-4">
+                <input
+                  type="text"
+                  value={shareUrl}
+                  readOnly
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
+                />
+                <button
+                  onClick={copyShareLink}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
+                >
+                  {shareCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {shareCopied ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowShareModal(false)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

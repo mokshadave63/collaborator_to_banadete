@@ -3,16 +3,19 @@ import Design from '../models/designModel';
 import { IGetUserAuthInfoRequest } from '../middleware/auth';
 import path from 'path';
 import fs from 'fs';
+import { randomBytes } from 'crypto';
+
+// Generate a unique share ID
+const generateShareId = () => {
+  return randomBytes(8).toString('hex');
+};
 
 // @desc    Create a new design
 // @route   POST /api/designs
 // @access  Private
 export const createDesign = async (req: IGetUserAuthInfoRequest, res: Response) => {
   try {
-    const { name, description, designData, isPublic, tags } = req.body;
-    
-    // Get the thumbnail path if uploaded
-    const thumbnail = req.file ? `/uploads/${req.file.filename}` : '';
+    const { name, description, designData, isPublic, tags, thumbnail } = req.body;
 
     const design = await Design.create({
       user: req.user._id,
@@ -25,9 +28,10 @@ export const createDesign = async (req: IGetUserAuthInfoRequest, res: Response) 
         logoDecal: designData.logoDecal || '',
         fullDecal: designData.fullDecal || '',
       },
-      thumbnail,
+      thumbnail: thumbnail || '',
       isPublic: isPublic !== undefined ? isPublic : true,
       tags: tags || [],
+      shareId: generateShareId(),
     });
 
     res.status(201).json(design);
@@ -46,7 +50,7 @@ export const getPublicDesigns = async (req: Request, res: Response) => {
     const skip = (page - 1) * limit;
 
     const query: any = { isPublic: true };
-    
+
     // Search functionality
     if (req.query.search) {
       query.$text = { $search: req.query.search as string };
@@ -95,7 +99,7 @@ export const getUserDesigns = async (req: IGetUserAuthInfoRequest, res: Response
 export const getDesignById = async (req: Request, res: Response) => {
   try {
     const design = await Design.findById(req.params.id).populate('user', 'name email');
-    
+
     if (!design) {
       return res.status(404).json({ message: 'Design not found' });
     }
@@ -110,7 +114,26 @@ export const getDesignById = async (req: Request, res: Response) => {
   }
 };
 
-// @desc    Update a design
+// @desc    Get design by share ID
+// @route   GET /api/designs/share/:shareId
+// @access  Public
+export const getDesignByShareId = async (req: Request, res: Response) => {
+  try {
+    const design = await Design.findOne({ shareId: req.params.shareId }).populate('user', 'name email');
+
+    if (!design) {
+      return res.status(404).json({ message: 'Design not found' });
+    }
+
+    // Increment view count
+    design.views = (design.views || 0) + 1;
+    await design.save();
+
+    res.json(design);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message || 'Server error' });
+  }
+};// @desc    Update a design
 // @route   PUT /api/designs/:id
 // @access  Private
 export const updateDesign = async (req: IGetUserAuthInfoRequest, res: Response) => {
@@ -145,17 +168,17 @@ export const updateDesign = async (req: IGetUserAuthInfoRequest, res: Response) 
     design.description = description !== undefined ? description : design.description;
     design.designData = {
       color: designData?.color || design.designData.color,
-      isLogoTexture: designData?.isLogoTexture !== undefined 
-        ? designData.isLogoTexture 
+      isLogoTexture: designData?.isLogoTexture !== undefined
+        ? designData.isLogoTexture
         : design.designData.isLogoTexture,
-      isFullTexture: designData?.isFullTexture !== undefined 
-        ? designData.isFullTexture 
+      isFullTexture: designData?.isFullTexture !== undefined
+        ? designData.isFullTexture
         : design.designData.isFullTexture,
-      logoDecal: designData?.logoDecal !== undefined 
-        ? designData.logoDecal 
+      logoDecal: designData?.logoDecal !== undefined
+        ? designData.logoDecal
         : design.designData.logoDecal,
-      fullDecal: designData?.fullDecal !== undefined 
-        ? designData.fullDecal 
+      fullDecal: designData?.fullDecal !== undefined
+        ? designData.fullDecal
         : design.designData.fullDecal,
     };
     design.thumbnail = thumbnail;
@@ -211,15 +234,19 @@ export const likeDesign = async (req: IGetUserAuthInfoRequest, res: Response) =>
       return res.status(404).json({ message: 'Design not found' });
     }
 
-    // Check if the design has already been liked by this user
-    if (design.likes.includes(req.user._id)) {
+    // Ensure we compare ObjectId values reliably
+    const userId = req.user._id.toString();
+    const alreadyLiked = design.likes.some((id: any) => id.toString() === userId);
+
+    if (alreadyLiked) {
       return res.status(400).json({ message: 'Design already liked' });
     }
 
     design.likes.push(req.user._id);
     await design.save();
 
-    res.json({ message: 'Design liked', likes: design.likes.length });
+    // Return updated likes info
+    res.json({ message: 'Design liked', likes: design.likes.length, likes: design.likes });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Server error' });
   }
@@ -236,17 +263,19 @@ export const unlikeDesign = async (req: IGetUserAuthInfoRequest, res: Response) 
       return res.status(404).json({ message: 'Design not found' });
     }
 
-    // Check if the design has been liked by this user
-    if (!design.likes.includes(req.user._id)) {
+    // Ensure we compare ObjectId values reliably
+    const userId = req.user._id.toString();
+    const liked = design.likes.some((id: any) => id.toString() === userId);
+
+    if (!liked) {
       return res.status(400).json({ message: 'Design has not been liked yet' });
     }
 
-    design.likes = design.likes.filter(
-      (id) => id.toString() !== req.user._id.toString()
-    );
+    design.likes = design.likes.filter((id: any) => id.toString() !== userId);
     await design.save();
 
-    res.json({ message: 'Design unliked', likes: design.likes.length });
+    // Return updated likes info
+    res.json({ message: 'Design unliked', likes: design.likes.length, likes: design.likes });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Server error' });
   }
@@ -267,15 +296,14 @@ export const downloadDesign = async (req: IGetUserAuthInfoRequest, res: Response
     design.downloads = (design.downloads || 0) + 1;
     await design.save();
 
-    // In a real app, you would generate and return the design file
-    // For now, we'll just return a success message
-    res.json({ 
-      message: 'Design downloaded', 
-      downloads: design.downloads,
+    // Return design data for frontend to use for export
+    res.json({
+      message: 'Design ready for download',
       design: {
         id: design._id,
         name: design.name,
-        // Add other design data that might be needed for the frontend
+        designData: design.designData,
+        downloads: design.downloads,
       }
     });
   } catch (error: any) {
