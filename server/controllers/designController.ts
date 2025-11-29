@@ -246,7 +246,7 @@ export const likeDesign = async (req: IGetUserAuthInfoRequest, res: Response) =>
     await design.save();
 
     // Return updated likes info
-    res.json({ message: 'Design liked', likes: design.likes.length, likes: design.likes });
+    res.json({ message: 'Design liked', likesCount: design.likes.length, likes: design.likes });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Server error' });
   }
@@ -275,7 +275,7 @@ export const unlikeDesign = async (req: IGetUserAuthInfoRequest, res: Response) 
     await design.save();
 
     // Return updated likes info
-    res.json({ message: 'Design unliked', likes: design.likes.length, likes: design.likes });
+    res.json({ message: 'Design unliked', likesCount: design.likes.length, likes: design.likes });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Server error' });
   }

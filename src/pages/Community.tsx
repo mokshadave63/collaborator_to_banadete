@@ -62,16 +62,20 @@ const Community: React.FC = () => {
 
   const handleLike = async (e: React.MouseEvent, designId: string) => {
     e.preventDefault();
+    e.stopPropagation();
     if (!authState.isAuthenticated) {
       alert('Please log in to like designs');
       return;
     }
 
+    console.debug('Like clicked for', designId);
+
     try {
       if (likedDesigns.has(designId)) {
         const res = await designAPI.unlike(designId);
-        // Update local designs state with returned likes
-        setDesigns((prev) => prev.map((d) => d._id === designId ? { ...d, likes: res.likes } : d));
+        console.debug('Unlike response', res);
+        // Update local designs state with returned likes (array)
+        setDesigns((prev) => prev.map((d) => d._id === designId ? { ...d, likes: res.likes || [] } : d));
         setLikedDesigns((prev) => {
           const newSet = new Set(prev);
           newSet.delete(designId);
@@ -79,7 +83,8 @@ const Community: React.FC = () => {
         });
       } else {
         const res = await designAPI.like(designId);
-        setDesigns((prev) => prev.map((d) => d._id === designId ? { ...d, likes: res.likes } : d));
+        console.debug('Like response', res);
+        setDesigns((prev) => prev.map((d) => d._id === designId ? { ...d, likes: res.likes || [] } : d));
         setLikedDesigns((prev) => new Set(prev).add(designId));
       }
     } catch (error: any) {
@@ -91,6 +96,7 @@ const Community: React.FC = () => {
 
   const handleDownload = async (e: React.MouseEvent, design: Design) => {
     e.preventDefault();
+    e.stopPropagation();
     try {
       if (authState.token) {
         await designAPI.downloadDesign(design._id);
@@ -234,6 +240,7 @@ const Community: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.preventDefault();
+                          e.stopPropagation();
                           navigator.clipboard.writeText(`${window.location.origin}/share/${design.shareId}`);
                           alert('Share link copied!');
                         }}

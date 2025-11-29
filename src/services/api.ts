@@ -96,12 +96,14 @@ export const designAPI = {
         return response.json();
     },
 
-    update: async (id: string, designData: DesignPayload, token: string) => {
+    update: async (id: string, designData: DesignPayload, token?: string) => {
+        const authToken = token || localStorage.getItem('authToken');
+        if (!authToken) throw new Error('Not authenticated');
         const response = await fetch(`${API_URL}/designs/${id}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
+                Authorization: `Bearer ${authToken}`,
             },
             body: JSON.stringify(designData),
         });

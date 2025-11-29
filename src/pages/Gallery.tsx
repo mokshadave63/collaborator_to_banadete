@@ -26,6 +26,7 @@ const Gallery: React.FC = () => {
   const [filterType, setFilterType] = useState<string>('all');
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authState.isAuthenticated) {
@@ -61,7 +62,7 @@ const Gallery: React.FC = () => {
     if (window.confirm('Are you sure you want to delete this design?')) {
       try {
         setDeleting(id);
-        await designAPI.deleteDesign(id);
+        await designAPI.delete(id);
         setDesigns(designs.filter(d => d._id !== id));
       } catch (err) {
         console.error('Error deleting design:', err);
@@ -69,6 +70,32 @@ const Gallery: React.FC = () => {
       } finally {
         setDeleting(null);
       }
+    }
+  };
+
+  const handleRename = async (id: string) => {
+    const design = designs.find(d => d._id === id);
+    if (!design) return;
+    const newName = window.prompt('Enter new name for the design', design.name);
+    if (!newName || newName.trim() === '' || newName === design.name) return;
+
+    try {
+      setRenamingId(id);
+      const payload = {
+        name: newName,
+        description: design.description || newName,
+        designData: design.designData,
+        isPublic: (design as any).isPublic !== undefined ? (design as any).isPublic : true,
+        tags: design.tags || [],
+        thumbnail: (design as any).thumbnail || '',
+      };
+      const res = await designAPI.update(id, payload);
+      setDesigns((prev) => prev.map(d => d._id === id ? { ...d, name: newName } : d));
+    } catch (err) {
+      console.error('Error renaming design:', err);
+      setError('Failed to rename design');
+    } finally {
+      setRenamingId(null);
     }
   };
 
@@ -224,7 +251,14 @@ const Gallery: React.FC = () => {
                         className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm"
                       >
                         <Edit className="w-4 h-4" />
-                        Edit
+                        Open
+                      </button>
+                      <button
+                        onClick={() => handleRename(design._id)}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors text-sm"
+                      >
+                        <Edit className="w-4 h-4" />
+                        Rename
                       </button>
                       <button
                         onClick={() => handleDownload(design)}
